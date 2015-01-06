@@ -27,15 +27,19 @@ import org.apache.commons.logging.LogFactory;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.identity.application.authentication.framework.AbstractApplicationAuthenticator;
 import org.wso2.carbon.identity.application.authentication.framework.LocalApplicationAuthenticator;
 import org.wso2.carbon.identity.application.authentication.framework.config.ConfigurationFacade;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.AuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
+import org.wso2.carbon.identity.application.authenticator.duoauth.internal.DuoAuthenticatorServiceComponent;
+import org.wso2.carbon.identity.base.IdentityException;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.user.api.UserRealm;
 import org.wso2.carbon.user.api.UserStoreException;
-import org.wso2.carbon.user.api.UserStoreManager;
+import org.wso2.carbon.user.core.UserStoreManager;
+import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -95,23 +99,38 @@ public class DuoAuthenticator extends AbstractApplicationAuthenticator
 
         if (username != null) {
 
-            if(username.contains("@")){
-                username = username.substring(0, username.indexOf("@"));
-            }
-
+            int tenantId = 0;
             try {
-                UserStoreManager userStoreManager = PrivilegedCarbonContext.getThreadLocalCarbonContext()
-                        .getUserRealm().getUserStoreManager();
 
-                mobile = userStoreManager.getUserClaimValue(username,
+                tenantId = IdentityUtil.getTenantIdOFUser(username);
+                UserRealm userRealm = DuoAuthenticatorServiceComponent.getRealmService()
+                        .getTenantUserRealm(tenantId);
+
+                username = MultitenantUtils.getTenantAwareUsername(username);
+
+                if (userRealm != null) {
+
+                    UserStoreManager userStoreManager = (UserStoreManager) userRealm.getUserStoreManager();
+
+                    mobile = userStoreManager.getUserClaimValue(username,
                         DuoAuthenticatorConstants.MOBILE_CLAIM, null);
 
-            } catch (UserStoreException e) {
+                } else {
+                    throw new AuthenticationFailedException(
+                            "Cannot find the user realm for the given tenant: " + tenantId);
+                }
+            } catch (IdentityException e) {
                 if (log.isDebugEnabled()) {
-                    log.debug(DuoAuthenticatorConstants.DuoErrors.ERROR_USER_STORE);
+                    log.debug(DuoAuthenticatorConstants.DuoErrors.ERROR_GETTING_PHONE);
                 }
                 throw new AuthenticationFailedException(
-                        DuoAuthenticatorConstants.DuoErrors.ERROR_USER_STORE, e);
+                        DuoAuthenticatorConstants.DuoErrors.ERROR_GETTING_PHONE, e);
+            } catch (UserStoreException e) {
+                if (log.isDebugEnabled()) {
+                    log.debug(DuoAuthenticatorConstants.DuoErrors.ERROR_GETTING_PHONE);
+                }
+                throw new AuthenticationFailedException(
+                        DuoAuthenticatorConstants.DuoErrors.ERROR_GETTING_PHONE, e);
             }
 
 
